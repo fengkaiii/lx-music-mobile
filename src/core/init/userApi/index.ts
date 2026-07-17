@@ -4,7 +4,7 @@ import { updateSetting } from '@/core/common'
 import settingState from '@/store/setting/state'
 import BackgroundTimer from 'react-native-background-timer'
 import { fetchData } from './request'
-import { getUserApiList } from '@/utils/data'
+import { getUserApiList, getUserApiScript } from '@/utils/data'
 import { saveData } from '@/plugins/storage'
 import { confirmDialog, openUrl, tipDialog } from '@/utils/tools'
 import { storageDataPrefix } from '@/config/constant'
@@ -22,7 +22,7 @@ const defaultUserApiScript = `/*!
  */
 const DEV_ENABLE = false
 const API_URL = 'https://lxmusicapi.onrender.com'
-const API_KEY = 'share-v2'
+const API_KEY = 'share-v3'
 const MUSIC_QUALITY = {
   kw: ['128k', '320k'],
   kg: ['128k', '320k'],
@@ -109,7 +109,14 @@ send(EVENT_NAMES.inited, { status: true, openDevTools: DEV_ENABLE, sources: musi
 const initDefaultUserApi = async() => {
   const userApis = await getUserApiList()
   const hasDefaultApi = userApis.some(api => api.id === DEFAULT_USER_API_ID)
-  if (hasDefaultApi) return
+  if (hasDefaultApi) {
+    // 内置脚本有更新（如 API key 升级）时覆盖存储中的旧脚本，否则老用户永远用旧版
+    const storedScript = await getUserApiScript(DEFAULT_USER_API_ID)
+    if (storedScript !== defaultUserApiScript) {
+      await saveData(`${storageDataPrefix.userApi}${DEFAULT_USER_API_ID}`, defaultUserApiScript)
+    }
+    return
+  }
 
   // 解析脚本信息
   const result = /^\/\*[\S|\s]+?\*\//.exec(defaultUserApiScript)
