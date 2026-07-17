@@ -1,13 +1,34 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useMemo } from 'react'
+import { View } from 'react-native'
 import OnlineList, { type OnlineListType, type OnlineListProps } from '@/components/OnlineList'
 import { search } from '@/core/search/music'
 import searchMusicState, { type Source } from '@/store/search/music/state'
+import Button from '@/components/common/Button'
+import Text from '@/components/common/Text'
+import { useTheme } from '@/store/theme/hook'
+import { createStyle } from '@/utils/tools'
+import { handlePlayAll } from './listAction'
 
 // export type MusicListProps = Pick<OnlineListProps,
 // 'onLoadMore'
 // | 'onPlayList'
 // | 'onRefresh'
 // >
+
+const PlayActionBar = () => {
+  const theme = useTheme()
+  
+  return (
+    <View style={styles.container}>
+      <Button onPress={() => handlePlayAll(false)} style={styles.controlBtn}>
+        <Text style={{ ...styles.controlBtnText, color: theme['c-button-font'] }}>顺序播放</Text>
+      </Button>
+      <Button onPress={() => handlePlayAll(true)} style={styles.controlBtn}>
+        <Text style={{ ...styles.controlBtnText, color: theme['c-button-font'] }}>随机播放</Text>
+      </Button>
+    </View>
+  )
+}
 
 export interface MusicListType {
   loadList: (text: string, source: Source) => void
@@ -78,11 +99,37 @@ export default forwardRef<MusicListType, {}>((props, ref) => {
     })
   }
 
+  const listHeader = useMemo(() => <PlayActionBar />, [])
+
   return <OnlineList
     ref={listRef}
     onRefresh={handleRefresh}
     onLoadMore={handleLoadMore}
     checkHomePagerIdle
+    ListHeaderComponent={listHeader}
   />
+})
+
+const styles = createStyle({
+  container: {
+    flexDirection: 'row',
+    width: '100%',
+    flexGrow: 0,
+    flexShrink: 0,
+    paddingBottom: 5,
+  },
+  controlBtn: {
+    flexGrow: 1,
+    flexShrink: 1,
+    width: '50%',
+    paddingTop: 10,
+    paddingBottom: 10,
+    paddingLeft: 10,
+    paddingRight: 10,
+  },
+  controlBtnText: {
+    fontSize: 13,
+    textAlign: 'center',
+  },
 })
 

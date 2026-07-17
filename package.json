@@ -1,6 +1,6 @@
 {
   "name": "lx-music-mobile",
-  "version": "1.8.4",
+  "version": "1.8.5",
   "versionCode": 76,
   "private": true,
   "scripts": {
@@ -20,6 +20,8 @@
     "clear": "cd android && gradlew.bat clean",
     "clear:full": "git clean -fdx -e android/keystore.properties -e android/app/*.keystore",
     "build:theme": "node src/theme/themes/createThemes.js",
+    "build:github-deps": "node scripts/build-github-deps.js",
+    "postinstall": "node scripts/build-github-deps.js",
     "publish": "node publish"
   },
   "engines": {
