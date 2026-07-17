@@ -1,13 +1,177 @@
 import { type InitParams, onScriptAction, sendAction, type ResponseParams, type UpdateInfoParams, type RequestParams } from '@/utils/nativeModules/userApi'
 import { log, setUserApiList, setUserApiStatus } from '@/core/userApi'
+import { updateSetting } from '@/core/common'
 import settingState from '@/store/setting/state'
 import BackgroundTimer from 'react-native-background-timer'
 import { fetchData } from './request'
 import { getUserApiList } from '@/utils/data'
+import { saveData } from '@/plugins/storage'
 import { confirmDialog, openUrl, tipDialog } from '@/utils/tools'
+import { storageDataPrefix } from '@/config/constant'
 
+// 默认音源配置
+const DEFAULT_USER_API_ID = 'user_api_default_huibq'
+const DEFAULT_USER_API_NAME = 'Huibq_lxmusic源'
+
+// 默认音源脚本
+const defaultUserApiScript = `/*!
+ * @name Huibq_lxmusic源
+ * @description Github搜索"洛雪音乐音源"，禁止批量下载！
+ * @version v1.2.0
+ * @author Huibq
+ */
+const DEV_ENABLE = false
+const API_URL = 'https://lxmusicapi.onrender.com'
+const API_KEY = 'share-v2'
+const MUSIC_QUALITY = {
+  kw: ['128k', '320k'],
+  kg: ['128k', '320k'],
+  tx: ['128k', '320k'],
+  wy: ['128k', '320k'],
+  mg: ['128k', '320k'],
+}
+const MUSIC_SOURCE = Object.keys(MUSIC_QUALITY)
+const { EVENT_NAMES, request, on, send, utils, env, version } = globalThis.lx
+const httpFetch = (url, options = { method: 'GET' }) => {
+  return new Promise((resolve, reject) => {
+    request(url, options, (err, resp) => {
+      if (err) return reject(err)
+      resolve(resp)
+    })
+  })
+}
+const handleGetMusicUrl = async (source, musicInfo, quality) => {
+  const songId = musicInfo.hash ?? musicInfo.songmid
+
+  const request = await httpFetch(\`\${API_URL}/url/\${source}/\${songId}/\${quality}\`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': \`\${env ? \`lx-music-\${env}/\${version}\` : \`lx-usic-request/\${version}\`}\`,
+      'X-Request-Key': API_KEY,
+    },
+  })
+  const { body } = request
+  if (!body || isNaN(Number(body.code))) throw new Error('unknow error')
+  switch (body.code) {
+    case 0:
+      return body.url
+    case 1:
+      throw new Error('block ip')
+    case 2:
+      throw new Error('get music url failed')
+    case 4:
+      throw new Error('internal server error')
+    case 5:
+      throw new Error('too many requests')
+    case 6:
+      throw new Error('param error')
+    default:
+      throw new Error(body.msg ?? 'unknow error')
+  }
+}
+const musicSources = {}
+MUSIC_SOURCE.forEach(item => {
+  musicSources[item] = {
+    name: item,
+    type: 'music',
+    actions: ['musicUrl'],
+    qualitys: MUSIC_QUALITY[item],
+  }
+})
+on(EVENT_NAMES.request, ({ action, source, info }) => {
+  switch (action) {
+    case 'musicUrl':
+      if (env != 'mobile') {
+        console.group(\`Handle Action(musicUrl)\`)
+        console.log('source', source)
+        console.log('quality', info.type)
+        console.log('musicInfo', info.musicInfo)
+        console.groupEnd()
+      } else {
+        console.log(\`Handle Action(musicUrl)\`)
+        console.log('source', source)
+        console.log('quality', info.type)
+        console.log('musicInfo', info.musicInfo)
+      }
+      return handleGetMusicUrl(source, info.musicInfo, info.type)
+        .then(data => Promise.resolve(data))
+        .catch(err => Promise.reject(err))
+    default:
+      console.error(\`action(\${action}) not support\`)
+      return Promise.reject('action not support')
+  }
+})
+send(EVENT_NAMES.inited, { status: true, openDevTools: DEV_ENABLE, sources: musicSources })
+`
+
+// 检查并添加默认音源（按固定 id 判断，避免同名不同 id 时误跳过）
+const initDefaultUserApi = async() => {
+  const userApis = await getUserApiList()
+  const hasDefaultApi = userApis.some(api => api.id === DEFAULT_USER_API_ID)
+  if (hasDefaultApi) return
+
+  // 解析脚本信息
+  const result = /^\/\*[\S|\s]+?\*\//.exec(defaultUserApiScript)
+  if (!result) return
+
+  const scriptInfo = (() => {
+    const INFO_NAMES = {
+      name: 24,
+      description: 36,
+      author: 56,
+      homepage: 1024,
+      version: 36,
+    } as const
+
+    const infoArr = result[0].split(/\r?\n/)
+    const rxp = /^\s?\*\s?@(\w+)\s(.+)$/
+    const infos: Partial<Record<keyof typeof INFO_NAMES, string>> = {}
+
+    for (const info of infoArr) {
+      const match = rxp.exec(info)
+      if (!match) continue
+      const key = match[1] as keyof typeof INFO_NAMES
+      if (INFO_NAMES[key] == null) continue
+      infos[key] = match[2].trim()
+    }
+
+    for (const [key, len] of Object.entries(INFO_NAMES)) {
+      infos[key as keyof typeof INFO_NAMES] ||= ''
+      if (infos[key as keyof typeof INFO_NAMES] == null) infos[key as keyof typeof INFO_NAMES] = ''
+      else if (infos[key as keyof typeof INFO_NAMES]!.length > len) {
+        infos[key as keyof typeof INFO_NAMES] = infos[key as keyof typeof INFO_NAMES]!.substring(0, len) + '...'
+      }
+    }
+
+    return infos as Record<keyof typeof INFO_NAMES, string>
+  })()
+
+  scriptInfo.name ||= DEFAULT_USER_API_NAME
+  const apiInfo: LX.UserApi.UserApiInfo = {
+    id: DEFAULT_USER_API_ID,
+    ...scriptInfo,
+    allowShowUpdateAlert: true,
+  }
+
+  userApis.push(apiInfo)
+  // saveData 来自 @/plugins/storage（@/utils/data 未导出该函数）
+  await saveData(storageDataPrefix.userApi, userApis)
+  await saveData(`${storageDataPrefix.userApi}${apiInfo.id}`, defaultUserApiScript)
+}
 
 export default async(setting: LX.AppSetting) => {
+  // 先写入默认音源，再加载列表 / 切源
+  try {
+    await initDefaultUserApi()
+  } catch (error) {
+    console.log('初始化默认音源失败:', error)
+  }
+  // 旧数据残留空 apiSource 时，回落到默认音源（仅改 defaultSetting 无法覆盖已持久化的空字符串）
+  if (!setting['common.apiSource']) {
+    setting['common.apiSource'] = DEFAULT_USER_API_ID
+    updateSetting({ 'common.apiSource': DEFAULT_USER_API_ID })
+  }
   const userApiRequestMap = new Map<string, { resolve: (value: ResponseParams['result']) => void, reject: (error: Error) => void, timeout: number }>()
   const scriptRequestMap = new Map<string, { request: Promise<any>, abort: () => void }>()
 
