@@ -10,4 +10,5 @@
 
 ## Commits
 
+- 2026-07-21 fix(pack): 修复 Mac 打包路径并支持 debug 离线打入 JS
 - 2026-07-21 chore(branch): 初始化分支 fix/pack-commands（v1.8.6）
